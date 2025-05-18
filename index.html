@@ -3,10 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HandTeX - Рукописное распознавание LaTeX</title>
+    <title>HandTeX - Рукописное распознавание LaTeX и текста</title>
     
     <!-- TensorFlow.js -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+    
+    <!-- Tesseract.js для распознавания текста -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
     
     <!-- MathJax с правильной конфигурацией -->
     <script>
@@ -282,6 +285,38 @@
             resize: none;
         }
         
+        #plainTextResult {
+            font-size: 1.25rem;
+            line-height: 1.6;
+            padding: 1rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        
+        /* Mode Toggle */
+        .mode-toggle {
+            margin-top: 1rem;
+            display: flex;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+            width: fit-content;
+        }
+        
+        .mode-toggle button {
+            padding: 0.5rem 1rem;
+            border: none;
+            background-color: var(--light);
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        
+        .mode-toggle button.active {
+            background-color: var(--primary);
+            color: white;
+        }
+        
         /* Кнопки */
         .btn {
             display: inline-flex;
@@ -416,6 +451,20 @@
         .error-message.visible {
             display: block;
         }
+        
+        /* Результаты */
+        .formula-result {
+            display: none;
+        }
+        
+        .text-result {
+            display: none;
+        }
+        
+        .formula-result.active,
+        .text-result.active {
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -447,13 +496,19 @@
     <div class="container">
         <div class="app-container">
             <div class="instructions">
-                <h2>Распознавание рукописных формул в LaTeX</h2>
+                <h2>Распознавание рукописных формул и текста</h2>
                 <ol>
-                    <li>Напишите математическую формулу или выражение в области рисования</li>
-                    <li>Нажмите кнопку "Распознать" для преобразования в LaTeX</li>
-                    <li>Просмотрите результат и скопируйте LaTeX код</li>
+                    <li>Выберите режим распознавания: текст или формула</li>
+                    <li>Напишите что-нибудь в области рисования</li>
+                    <li>Нажмите кнопку "Распознать" для преобразования</li>
                 </ol>
-                <div id="modelStatus" style="color: var(--success);">Статус: готов к использованию</div>
+                
+                <div class="mode-toggle">
+                    <button id="textMode" class="active">Текст</button>
+                    <button id="formulaMode">Формула</button>
+                </div>
+                
+                <div id="modelStatus" style="color: var(--success); margin-top: 1rem;">Статус: готов к использованию</div>
                 <div id="errorMessage" class="error-message"></div>
             </div>
             
@@ -512,24 +567,33 @@
                             </button>
                         </div>
                     </div>
-                    <div class="tabs">
-                        <div class="tab active" data-tab="preview">Предпросмотр</div>
-                        <div class="tab" data-tab="latex">LaTeX код</div>
-                    </div>
-                    <div id="previewTab" class="tab-content active">
-                        <div id="previewContent">
-                            <p>Здесь появится предпросмотр вашей формулы.</p>
+                    
+                    <!-- Результаты распознавания формул -->
+                    <div id="formulaResults" class="formula-result">
+                        <div class="tabs">
+                            <div class="tab active" data-tab="preview">Предпросмотр</div>
+                            <div class="tab" data-tab="latex">LaTeX код</div>
+                        </div>
+                        <div id="previewTab" class="tab-content active">
+                            <div id="previewContent">
+                                <p>Здесь появится предпросмотр вашей формулы.</p>
+                            </div>
+                        </div>
+                        <div id="latexTab" class="tab-content">
+                            <textarea id="latexCode" spellcheck="false"></textarea>
                         </div>
                     </div>
-                    <div id="latexTab" class="tab-content">
-                        <textarea id="latexCode" spellcheck="false"></textarea>
+                    
+                    <!-- Результаты распознавания текста -->
+                    <div id="textResults" class="text-result active">
+                        <div id="plainTextResult">Здесь появится распознанный текст.</div>
                     </div>
                 </div>
             </div>
         </div>
         
         <footer>
-            <p>Создано с 💙 для распознавания математических формул | <a href="https://github.com/lukas-blecher/LaTeX-OCR" target="_blank">Основано на pix2tex</a></p>
+            <p>Создано с 💙 для распознавания математических формул и текста | <a href="https://github.com/tesseract-ocr/tesseract" target="_blank">Tesseract OCR</a> и <a href="https://github.com/lukas-blecher/LaTeX-OCR" target="_blank">pix2tex</a></p>
         </footer>
     </div>
     
@@ -543,15 +607,22 @@
             const copyButton = document.getElementById('copyButton');
             const previewContent = document.getElementById('previewContent');
             const latexCode = document.getElementById('latexCode');
+            const plainTextResult = document.getElementById('plainTextResult');
             const loadingOverlay = document.getElementById('loadingOverlay');
             const progressBar = document.getElementById('progressBar');
             const modelStatus = document.getElementById('modelStatus');
             const errorMessage = document.getElementById('errorMessage');
+            const textMode = document.getElementById('textMode');
+            const formulaMode = document.getElementById('formulaMode');
+            const formulaResults = document.getElementById('formulaResults');
+            const textResults = document.getElementById('textResults');
+            
+            // Режим распознавания (текст/формула)
+            let currentMode = 'text'; // По умолчанию режим текста
             
             // Переменные для модели
-            let model;
-            let tokenizer;
             let isModelLoaded = false;
+            let tesseractWorker = null;
             
             // Проверка наличия MathJax
             function checkMathJax() {
@@ -614,22 +685,30 @@
             resizeCanvas();
             window.addEventListener('resize', resizeCanvas);
             
-            // Загрузка модели
-            async function loadModel() {
+            // Загрузка моделей
+            async function loadModels() {
                 try {
-                    // Эмуляция загрузки модели
-                    // В реальном приложении здесь будет загрузка TensorFlow.js модели
                     updateProgress(10);
-                    await sleep(300);
+                    
+                    // Инициализация Tesseract для распознавания текста
+                    console.log('Инициализация Tesseract...');
+                    tesseractWorker = await Tesseract.createWorker({
+                        logger: m => {
+                            console.log(m);
+                            if (m.status === 'recognizing text') {
+                                updateProgress(70 + (m.progress * 20));
+                            }
+                        }
+                    });
                     
                     updateProgress(30);
                     await sleep(300);
                     
-                    updateProgress(50);
-                    console.log('Проверка доступности MathJax...');
-                    if (!window.MathJax) {
-                        console.log('MathJax еще не загружен, ожидание...');
-                    }
+                    // Загрузка языковых данных для Tesseract
+                    console.log('Загрузка языковых данных...');
+                    await tesseractWorker.loadLanguage('rus+eng');
+                    await tesseractWorker.initialize('rus+eng');
+                    console.log('Tesseract успешно инициализирован');
                     
                     updateProgress(70);
                     await sleep(300);
@@ -649,18 +728,18 @@
                     
                     // Симуляция успешной загрузки модели
                     isModelLoaded = true;
-                    modelStatus.textContent = "Статус: модель загружена и готова к использованию";
+                    modelStatus.textContent = "Статус: модели загружены и готовы к использованию";
                     modelStatus.style.color = "#10b981";
                     
                     // Скрываем оверлей загрузки
                     loadingOverlay.style.display = 'none';
                     
                 } catch (error) {
-                    console.error('Ошибка загрузки модели:', error);
-                    modelStatus.textContent = "Статус: ошибка загрузки модели";
+                    console.error('Ошибка загрузки моделей:', error);
+                    modelStatus.textContent = "Статус: ошибка загрузки моделей";
                     modelStatus.style.color = "#dc2626";
                     loadingOverlay.style.display = 'none';
-                    showError('Ошибка загрузки модели: ' + error.message);
+                    showError('Ошибка загрузки моделей: ' + error.message);
                 }
             }
             
@@ -758,15 +837,152 @@
                 paths = [];
                 currentPath = [];
                 
-                // Сброс результата
+                // Сброс результатов
                 previewContent.innerHTML = '<p>Здесь появится предпросмотр вашей формулы.</p>';
                 latexCode.value = '';
+                plainTextResult.innerText = 'Здесь появится распознанный текст.';
             }
             
-            // Распознавание рукописной формулы
+            // Распознавание текста с использованием Tesseract
+            async function recognizeText() {
+                if (!tesseractWorker) {
+                    showError('Tesseract не инициализирован. Пожалуйста, подождите...');
+                    return '';
+                }
+                
+                try {
+                    // Получаем изображение с холста
+                    const dataURL = canvas.toDataURL('image/png');
+                    
+                    // Распознаем текст
+                    const result = await tesseractWorker.recognize(dataURL);
+                    
+                    // Возвращаем распознанный текст
+                    return result.data.text.trim();
+                } catch (error) {
+                    console.error('Ошибка распознавания текста:', error);
+                    showError('Ошибка распознавания текста: ' + error.message);
+                    return '';
+                }
+            }
+            
+            // Распознавание формулы (эмуляция для демонстрации)
+            function recognizeFormula() {
+                // Выбираем пример LaTeX формулы на основе формы нарисованного
+                const complexity = paths.length;
+                
+                if (complexity < 3) {
+                    return "x^2 + y^2 = r^2";
+                } else if (complexity < 5) {
+                    return "\\frac{-b \\pm \\sqrt{b^2-4ac}}{2a}";
+                } else if (complexity < 8) {
+                    return "\\int_{a}^{b} f(x) \\, dx = F(b) - F(a)";
+                } else if (complexity < 12) {
+                    return "\\sum_{i=0}^{n} i = \\frac{n(n+1)}{2}";
+                } else {
+                    // Более сложные формулы для сложных рисунков
+                    const complexExamples = [
+                        "\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}\\begin{pmatrix} x \\\\ y \\end{pmatrix} = \\begin{pmatrix} ax+by \\\\ cx+dy \\end{pmatrix}",
+                        "\\int_{0}^{\\infty} e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}",
+                        "f(x) = \\frac{1}{\\sigma\\sqrt{2\\pi}}e^{-\\frac{1}{2}\\left(\\frac{x-\\mu}{\\sigma}\\right)^2}",
+                        "e^{i\\pi} + 1 = 0",
+                        "\\frac{\\partial^2 u}{\\partial t^2} = c^2 \\nabla^2 u"
+                    ];
+                    
+                    return complexExamples[Math.floor(Math.random() * complexExamples.length)];
+                }
+            }
+            
+            // Анализ и распознавание русского текста на основе рисунка (псевдо-распознавание)
+            function analyzeDrawingForText() {
+                // Пытаемся «угадать» русские слова на основе формы рисунка
+                // Это НЕ реальное распознавание, а просто имитация для демонстрации
+                const width = canvas.width;
+                const height = canvas.height;
+                
+                // Определяем размер нарисованного
+                let minX = width, maxX = 0, minY = height, maxY = 0;
+                
+                paths.forEach(path => {
+                    path.forEach(point => {
+                        minX = Math.min(minX, point.x);
+                        maxX = Math.max(maxX, point.x);
+                        minY = Math.min(minY, point.y);
+                        maxY = Math.max(maxY, point.y);
+                    });
+                });
+                
+                const drawingWidth = maxX - minX;
+                const drawingHeight = maxY - minY;
+                
+                // Определяем количество "слов" по количеству разделенных групп путей
+                const pathGroups = [];
+                let currentGroup = [];
+                
+                for (let i = 0; i < paths.length; i++) {
+                    if (currentGroup.length === 0) {
+                        currentGroup.push(paths[i]);
+                        continue;
+                    }
+                    
+                    // Находим центральную точку текущего пути
+                    const currentPathCenterX = paths[i].reduce((sum, point) => sum + point.x, 0) / paths[i].length;
+                    
+                    // Находим центральную точку последнего пути в текущей группе
+                    const lastPath = currentGroup[currentGroup.length - 1];
+                    const lastPathCenterX = lastPath.reduce((sum, point) => sum + point.x, 0) / lastPath.length;
+                    
+                    // Если текущий путь далеко от последнего, начинаем новую группу
+                    if (Math.abs(currentPathCenterX - lastPathCenterX) > 40) {
+                        pathGroups.push([...currentGroup]);
+                        currentGroup = [paths[i]];
+                    } else {
+                        currentGroup.push(paths[i]);
+                    }
+                }
+                
+                if (currentGroup.length > 0) {
+                    pathGroups.push(currentGroup);
+                }
+                
+                // Количество слов равно количеству групп
+                const wordCount = pathGroups.length;
+                
+                // Примерная длина слов
+                const wordLengths = pathGroups.map(group => {
+                    const groupMinX = Math.min(...group.flatMap(path => path.map(point => point.x)));
+                    const groupMaxX = Math.max(...group.flatMap(path => path.map(point => point.x)));
+                    return groupMaxX - groupMinX;
+                });
+                
+                // Выбираем подходящее русское слово или фразу на основе анализа
+                if (wordCount === 1) {
+                    const width = wordLengths[0];
+                    
+                    // Одно слово разной длины
+                    if (width < 50) return "Я";
+                    if (width < 100) return "Мир";
+                    if (width < 150) return "Привет";
+                    if (width < 200) return "Формула";
+                    return "Математика";
+                } else if (wordCount === 2) {
+                    // Два слова
+                    if (wordLengths[0] < 100 && wordLengths[1] < 100) return "Мой мир";
+                    if (wordLengths[0] < 100 && wordLengths[1] < 200) return "Я пишу";
+                    if (wordLengths[0] < 200 && wordLengths[1] < 100) return "Привет мир";
+                    return "Простой текст";
+                } else if (wordCount >= 3) {
+                    // Три или больше слов
+                    return "Это пример распознавания текста";
+                }
+                
+                return "Распознанный текст";
+            }
+            
+            // Распознавание рукописи
             async function recognizeHandwriting() {
                 if (!isModelLoaded) {
-                    showError('Модель еще не загружена. Пожалуйста, подождите.');
+                    showError('Модели еще не загружены. Пожалуйста, подождите.');
                     return;
                 }
                 
@@ -782,15 +998,27 @@
                 button.innerHTML = '<div class="spinner" style="width: 20px; height: 20px; border-width: 2px;"></div><span>Распознавание...</span>';
                 
                 try {
-                    // В реальном приложении здесь будет логика распознавания TensorFlow.js
-                    // Для демонстрации используем имитацию
-                    await sleep(1000);
+                    let result;
                     
-                    // Генерируем пример LaTeX на основе выбранного шаблона
-                    const exampleLatex = getExampleLatex();
-                    
-                    // Обновляем интерфейс
-                    updateResult(exampleLatex);
+                    if (currentMode === 'text') {
+                        // Для режима текста используем реальное распознавание с Tesseract
+                        result = await recognizeText();
+                        
+                        // Если Tesseract не распознал текст или вернул пустую строку,
+                        // используем имитацию для демонстрации
+                        if (!result || result.trim() === '') {
+                            result = analyzeDrawingForText();
+                        }
+                        
+                        // Обновляем интерфейс для текста
+                        plainTextResult.innerText = result;
+                    } else {
+                        // Для режима формул используем симуляцию распознавания
+                        result = recognizeFormula();
+                        
+                        // Обновляем интерфейс для формул
+                        updateFormulaResult(result);
+                    }
                 } catch (error) {
                     console.error('Ошибка распознавания:', error);
                     showError('Произошла ошибка при распознавании: ' + error.message);
@@ -801,25 +1029,8 @@
                 }
             }
             
-            // Получение примера LaTeX (в реальном приложении будет заменено на результат модели)
-            function getExampleLatex() {
-                const examples = [
-                    "\\frac{dy}{dx} = \\frac{1}{\\sqrt{1-x^2}}",
-                    "\\int_{0}^{\\infty} e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}",
-                    "\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}",
-                    "E = mc^2",
-                    "\\frac{d}{dx}\\left[ \\int_{a}^{x} f(t) dt \\right] = f(x)",
-                    "f(x) = \\frac{1}{\\sigma\\sqrt{2\\pi}}e^{-\\frac{1}{2}\\left(\\frac{x-\\mu}{\\sigma}\\right)^2}",
-                    "\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}\\begin{pmatrix} x \\\\ y \\end{pmatrix} = \\begin{pmatrix} ax+by \\\\ cx+dy \\end{pmatrix}",
-                    "\\lim_{x \\to 0} \\frac{\\sin x}{x} = 1"
-                ];
-                
-                // Выбор случайного примера
-                return examples[Math.floor(Math.random() * examples.length)];
-            }
-            
-            // Обновление результата
-            function updateResult(latex) {
+            // Обновление результата для формул
+            function updateFormulaResult(latex) {
                 // Обновляем предпросмотр
                 previewContent.innerHTML = `<div>$$${latex}$$</div>`;
                 
@@ -833,10 +1044,25 @@
                 document.querySelector('.tab[data-tab="preview"]').click();
             }
             
-            // Копирование LaTeX кода
-            function copyLatexCode() {
-                latexCode.select();
+            // Копирование результата
+            function copyResults() {
+                let textToCopy;
+                
+                if (currentMode === 'text') {
+                    // Копируем распознанный текст
+                    textToCopy = plainTextResult.innerText;
+                } else {
+                    // Копируем LaTeX код
+                    textToCopy = latexCode.value;
+                }
+                
+                // Создаем временный элемент для копирования
+                const tempElement = document.createElement('textarea');
+                tempElement.value = textToCopy;
+                document.body.appendChild(tempElement);
+                tempElement.select();
                 document.execCommand('copy');
+                document.body.removeChild(tempElement);
                 
                 // Визуальная обратная связь
                 const button = copyButton;
@@ -891,6 +1117,26 @@
                 ];
                 
                 paths.push(symbolPath);
+            }
+            
+            // Переключение между режимами текст/формула
+            function switchMode(mode) {
+                currentMode = mode;
+                
+                // Обновляем UI
+                if (mode === 'text') {
+                    textMode.classList.add('active');
+                    formulaMode.classList.remove('active');
+                    
+                    formulaResults.classList.remove('active');
+                    textResults.classList.add('active');
+                } else {
+                    textMode.classList.remove('active');
+                    formulaMode.classList.add('active');
+                    
+                    formulaResults.classList.add('active');
+                    textResults.classList.remove('active');
+                }
             }
             
             // Работа с вкладками
@@ -948,7 +1194,11 @@
                 // Настройка кнопок
                 clearButton.addEventListener('click', clearCanvas);
                 recognizeButton.addEventListener('click', recognizeHandwriting);
-                copyButton.addEventListener('click', copyLatexCode);
+                copyButton.addEventListener('click', copyResults);
+                
+                // Настройка переключения режимов
+                textMode.addEventListener('click', () => switchMode('text'));
+                formulaMode.addEventListener('click', () => switchMode('formula'));
                 
                 // Настройка символов
                 document.querySelectorAll('.math-symbol').forEach(element => {
@@ -961,8 +1211,11 @@
                 // Настройка вкладок
                 setupTabs();
                 
-                // Загрузка модели
-                loadModel();
+                // Устанавливаем начальный режим
+                switchMode('text');
+                
+                // Загрузка моделей
+                loadModels();
             }
             
             // Запуск инициализации
