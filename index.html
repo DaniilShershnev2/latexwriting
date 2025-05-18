@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HandTeX - Рукописное распознавание LaTeX</title>
+    
+    <!-- TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.18.0/dist/tf.min.js"></script>
+    
+    <!-- MathJax с правильной конфигурацией -->
+    <script>
+    MathJax = {
+      tex: {
+        inlineMath: [['$', '$'], ['\\(', '\\)']],
+        displayMath: [['$$', '$$'], ['\\[', '\\]']],
+        processEscapes: true
+      },
+      startup: {
+        pageReady() {
+          console.log('MathJax успешно загружен и готов к использованию');
+          return MathJax.startup.defaultPageReady();
+        }
+      },
+      options: {
+        enableMenu: false // Отключаем контекстное меню для упрощения
+      }
+    };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    
+    <style>
+        /* Основные стили */
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --primary-light: #dbeafe;
+            --secondary: #64748b;
+            --danger: #dc2626;
+            --success: #10b981;
+            --light: #f8fafc;
+            --dark: #1e293b;
+            --border: #e2e8f0;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background-color: var(--light);
+            color: var(--dark);
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+        }
+        
+        /* Шапка */
+        header {
+            background-color: white;
+            padding: 1rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: bold;
+            font-size: 1.5rem;
+            color: var(--primary);
+        }
+        
+        .logo-icon {
+            background-color: var(--primary);
+            color: white;
+            width: 36px;
+            height: 36px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+        }
+        
+        .github-link {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--secondary);
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            background-color: var(--light);
+            transition: all 0.2s;
+        }
+        
+        .github-link:hover {
+            background-color: var(--border);
+        }
+        
+        /* Основной интерфейс */
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+        
+        .instructions {
+            background-color: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+        
+        .instructions h2 {
+            font-size: 1.25rem;
+            margin-bottom: 1rem;
+            color: var(--primary);
+        }
+        
+        .instructions ol {
+            margin-left: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .instructions li {
+            margin-bottom: 0.5rem;
+        }
+        
+        .main-interface {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+        
+        @media (max-width: 768px) {
+            .main-interface {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .canvas-section, .result-section {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+            background-color: var(--primary-light);
+        }
+        
+        .section-title {
+            font-weight: 600;
+            color: var(--primary);
+        }
+        
+        .section-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .canvas-container {
+            position: relative;
+            flex: 1;
+            min-height: 300px;
+        }
+        
+        #drawingCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: white;
+            background-image: 
+                linear-gradient(to right, rgba(0, 0, 0, 0.05) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
+            background-size: 20px 20px;
+            touch-action: none;
+        }
+        
+        .math-symbols {
+            display: flex;
+            gap: 0.5rem;
+            padding: 0.75rem;
+            overflow-x: auto;
+            border-top: 1px solid var(--border);
+        }
+        
+        .math-symbol {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            border-radius: 4px;
+            background-color: var(--light);
+            border: 1px solid var(--border);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .math-symbol:hover {
+            background-color: var(--primary-light);
+            border-color: var(--primary);
+        }
+        
+        .result-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .tab {
+            padding: 0.75rem 1.25rem;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        
+        .tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+            font-weight: 500;
+        }
+        
+        .tab-content {
+            flex: 1;
+            overflow: auto;
+            padding: 1rem;
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        #previewTab {
+            overflow-x: auto;
+        }
+        
+        textarea#latexCode {
+            width: 100%;
+            height: 100%;
+            min-height: 240px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 0.75rem;
+            font-family: 'Courier New', Courier, monospace;
+            resize: none;
+        }
+        
+        /* Кнопки */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            border: none;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+        }
+        
+        .btn:active {
+            transform: translateY(1px);
+        }
+        
+        .btn-primary {
+            background-color: var(--primary);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background-color: var(--primary-hover);
+        }
+        
+        .btn-primary:disabled {
+            background-color: var(--secondary);
+            cursor: not-allowed;
+        }
+        
+        .btn-secondary {
+            background-color: var(--light);
+            color: var(--secondary);
+            border: 1px solid var(--border);
+        }
+        
+        .btn-secondary:hover {
+            background-color: var(--border);
+        }
+        
+        .btn-danger {
+            background-color: rgba(220, 38, 38, 0.1);
+            color: var(--danger);
+        }
+        
+        .btn-danger:hover {
+            background-color: rgba(220, 38, 38, 0.2);
+        }
+        
+        /* Иконки и утилиты */
+        .icon {
+            width: 20px;
+            height: 20px;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            fill: none;
+        }
+        
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255, 255, 255, 0.8);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid var(--primary-light);
+            border-radius: 50%;
+            border-top-color: var(--primary);
+            animation: spin 1s linear infinite;
+            margin-bottom: 1rem;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .loading-text {
+            color: var(--primary);
+            font-weight: 500;
+        }
+        
+        .progress-container {
+            width: 250px;
+            height: 8px;
+            background-color: var(--border);
+            border-radius: 4px;
+            margin-top: 0.5rem;
+            overflow: hidden;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background-color: var(--primary);
+            border-radius: 4px;
+            transition: width 0.3s;
+        }
+
+        footer {
+            margin-top: 2rem;
+            text-align: center;
+            padding: 1rem;
+            color: var(--secondary);
+            font-size: 0.875rem;
+        }
+        
+        /* Сообщения об ошибках */
+        .error-message {
+            background-color: rgba(220, 38, 38, 0.1);
+            color: var(--danger);
+            padding: 1rem;
+            border-radius: 4px;
+            margin-top: 1rem;
+            font-size: 0.875rem;
+            display: none;
+        }
+        
+        .error-message.visible {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <!-- Загрузка модели -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <div class="loading-text">Загрузка ресурсов...</div>
+        <div class="progress-container">
+            <div id="progressBar" class="progress-bar"></div>
+        </div>
+    </div>
+    
+    <!-- Шапка -->
+    <header>
+        <div class="header-content">
+            <div class="logo">
+                <div class="logo-icon">ℒ</div>
+                <span>HandTeX</span>
+            </div>
+            <a href="https://github.com/yourusername/handtex" class="github-link" target="_blank">
+                <svg class="icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
+                </svg>
+                <span>GitHub</span>
+            </a>
+        </div>
+    </header>
+    
+    <div class="container">
+        <div class="app-container">
+            <div class="instructions">
+                <h2>Распознавание рукописных формул в LaTeX</h2>
+                <ol>
+                    <li>Напишите математическую формулу или выражение в области рисования</li>
+                    <li>Нажмите кнопку "Распознать" для преобразования в LaTeX</li>
+                    <li>Просмотрите результат и скопируйте LaTeX код</li>
+                </ol>
+                <div id="modelStatus" style="color: var(--success);">Статус: готов к использованию</div>
+                <div id="errorMessage" class="error-message"></div>
+            </div>
+            
+            <div class="main-interface">
+                <div class="canvas-section">
+                    <div class="section-header">
+                        <div class="section-title">Рукописный ввод</div>
+                        <div class="section-actions">
+                            <button id="clearButton" class="btn btn-danger">
+                                <svg class="icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                </svg>
+                                <span>Очистить</span>
+                            </button>
+                            <button id="recognizeButton" class="btn btn-primary">
+                                <svg class="icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+                                </svg>
+                                <span>Распознать</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="canvas-container">
+                        <canvas id="drawingCanvas"></canvas>
+                    </div>
+                    <div class="math-symbols">
+                        <div class="math-symbol" data-symbol="∫">∫</div>
+                        <div class="math-symbol" data-symbol="∑">∑</div>
+                        <div class="math-symbol" data-symbol="∏">∏</div>
+                        <div class="math-symbol" data-symbol="√">√</div>
+                        <div class="math-symbol" data-symbol="∞">∞</div>
+                        <div class="math-symbol" data-symbol="π">π</div>
+                        <div class="math-symbol" data-symbol="θ">θ</div>
+                        <div class="math-symbol" data-symbol="±">±</div>
+                        <div class="math-symbol" data-symbol="α">α</div>
+                        <div class="math-symbol" data-symbol="β">β</div>
+                        <div class="math-symbol" data-symbol="γ">γ</div>
+                        <div class="math-symbol" data-symbol="δ">δ</div>
+                        <div class="math-symbol" data-symbol="≤">≤</div>
+                        <div class="math-symbol" data-symbol="≥">≥</div>
+                        <div class="math-symbol" data-symbol="≈">≈</div>
+                        <div class="math-symbol" data-symbol="≠">≠</div>
+                    </div>
+                </div>
+                
+                <div class="result-section">
+                    <div class="section-header">
+                        <div class="section-title">Результат</div>
+                        <div class="section-actions">
+                            <button id="copyButton" class="btn btn-secondary">
+                                <svg class="icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"></path>
+                                </svg>
+                                <span>Скопировать</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="tabs">
+                        <div class="tab active" data-tab="preview">Предпросмотр</div>
+                        <div class="tab" data-tab="latex">LaTeX код</div>
+                    </div>
+                    <div id="previewTab" class="tab-content active">
+                        <div id="previewContent">
+                            <p>Здесь появится предпросмотр вашей формулы.</p>
+                        </div>
+                    </div>
+                    <div id="latexTab" class="tab-content">
+                        <textarea id="latexCode" spellcheck="false"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <footer>
+            <p>Создано с 💙 для распознавания математических формул | <a href="https://github.com/lukas-blecher/LaTeX-OCR" target="_blank">Основано на pix2tex</a></p>
+        </footer>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // DOM элементы
+            const canvas = document.getElementById('drawingCanvas');
+            const ctx = canvas.getContext('2d');
+            const recognizeButton = document.getElementById('recognizeButton');
+            const clearButton = document.getElementById('clearButton');
+            const copyButton = document.getElementById('copyButton');
+            const previewContent = document.getElementById('previewContent');
+            const latexCode = document.getElementById('latexCode');
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            const progressBar = document.getElementById('progressBar');
+            const modelStatus = document.getElementById('modelStatus');
+            const errorMessage = document.getElementById('errorMessage');
+            
+            // Переменные для модели
+            let model;
+            let tokenizer;
+            let isModelLoaded = false;
+            
+            // Проверка наличия MathJax
+            function checkMathJax() {
+                return window.MathJax && typeof window.MathJax.typeset === 'function';
+            }
+            
+            // Безопасный вызов MathJax
+            function safeTypesetMathJax() {
+                if (checkMathJax()) {
+                    try {
+                        window.MathJax.typeset();
+                        console.log('MathJax успешно обработал формулы');
+                    } catch (error) {
+                        console.error('Ошибка при обработке MathJax:', error);
+                        showError('Ошибка при отображении формулы: ' + error.message);
+                    }
+                } else {
+                    console.log('MathJax не найден или не полностью загружен. Пробуем позже...');
+                    setTimeout(() => {
+                        if (checkMathJax()) {
+                            try {
+                                window.MathJax.typeset();
+                                console.log('MathJax успешно обработал формулы после ожидания');
+                            } catch (error) {
+                                console.error('Ошибка при повторной обработке MathJax:', error);
+                                showError('Ошибка при отображении формулы: ' + error.message);
+                            }
+                        } else {
+                            showError('MathJax не загрузился. Проверьте подключение к интернету.');
+                        }
+                    }, 2000);
+                }
+            }
+            
+            // Показать сообщение об ошибке
+            function showError(message) {
+                errorMessage.textContent = message;
+                errorMessage.classList.add('visible');
+                setTimeout(() => {
+                    errorMessage.classList.remove('visible');
+                }, 5000);
+            }
+            
+            // Переменные для рисования
+            let isDrawing = false;
+            let paths = [];
+            let currentPath = [];
+            
+            // Настройка размеров канваса
+            function resizeCanvas() {
+                const container = canvas.parentElement;
+                canvas.width = container.offsetWidth;
+                canvas.height = container.offsetHeight;
+                
+                // Перерисовка существующих путей
+                redrawCanvas();
+            }
+            
+            // Инициализация канваса
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            
+            // Загрузка модели
+            async function loadModel() {
+                try {
+                    // Эмуляция загрузки модели
+                    // В реальном приложении здесь будет загрузка TensorFlow.js модели
+                    updateProgress(10);
+                    await sleep(300);
+                    
+                    updateProgress(30);
+                    await sleep(300);
+                    
+                    updateProgress(50);
+                    console.log('Проверка доступности MathJax...');
+                    if (!window.MathJax) {
+                        console.log('MathJax еще не загружен, ожидание...');
+                    }
+                    
+                    updateProgress(70);
+                    await sleep(300);
+                    
+                    // Проверка MathJax
+                    if (checkMathJax()) {
+                        console.log('MathJax успешно загружен');
+                    } else {
+                        console.log('MathJax еще загружается, продолжаем инициализацию');
+                    }
+                    
+                    updateProgress(90);
+                    await sleep(300);
+                    
+                    updateProgress(100);
+                    await sleep(300);
+                    
+                    // Симуляция успешной загрузки модели
+                    isModelLoaded = true;
+                    modelStatus.textContent = "Статус: модель загружена и готова к использованию";
+                    modelStatus.style.color = "#10b981";
+                    
+                    // Скрываем оверлей загрузки
+                    loadingOverlay.style.display = 'none';
+                    
+                } catch (error) {
+                    console.error('Ошибка загрузки модели:', error);
+                    modelStatus.textContent = "Статус: ошибка загрузки модели";
+                    modelStatus.style.color = "#dc2626";
+                    loadingOverlay.style.display = 'none';
+                    showError('Ошибка загрузки модели: ' + error.message);
+                }
+            }
+            
+            // Эмуляция задержки
+            function sleep(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+            
+            // Обновление индикатора прогресса
+            function updateProgress(percent) {
+                progressBar.style.width = `${percent}%`;
+            }
+            
+            // Функции для рисования
+            function startDrawing(e) {
+                isDrawing = true;
+                const { offsetX, offsetY } = getCoordinates(e);
+                
+                ctx.beginPath();
+                ctx.moveTo(offsetX, offsetY);
+                ctx.lineWidth = 3;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.strokeStyle = '#000';
+                
+                currentPath = [{ x: offsetX, y: offsetY }];
+            }
+            
+            function draw(e) {
+                if (!isDrawing) return;
+                
+                const { offsetX, offsetY } = getCoordinates(e);
+                
+                ctx.lineTo(offsetX, offsetY);
+                ctx.stroke();
+                
+                currentPath.push({ x: offsetX, y: offsetY });
+            }
+            
+            function stopDrawing() {
+                if (!isDrawing) return;
+                
+                isDrawing = false;
+                ctx.closePath();
+                
+                if (currentPath.length > 1) {
+                    paths.push([...currentPath]);
+                }
+                currentPath = [];
+            }
+            
+            // Функция для получения координат с учетом сенсорных устройств
+            function getCoordinates(e) {
+                let offsetX, offsetY;
+                
+                if (e.type.includes('touch')) {
+                    const rect = canvas.getBoundingClientRect();
+                    const touch = e.touches[0] || e.changedTouches[0];
+                    offsetX = touch.clientX - rect.left;
+                    offsetY = touch.clientY - rect.top;
+                } else {
+                    offsetX = e.offsetX;
+                    offsetY = e.offsetY;
+                }
+                
+                return { offsetX, offsetY };
+            }
+            
+            // Отрисовка холста
+            function redrawCanvas() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                // Отрисовка всех сохраненных путей
+                paths.forEach(path => {
+                    if (path.length < 2) return;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(path[0].x, path[0].y);
+                    
+                    for (let i = 1; i < path.length; i++) {
+                        ctx.lineTo(path[i].x, path[i].y);
+                    }
+                    
+                    ctx.lineWidth = 3;
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+                    ctx.strokeStyle = '#000';
+                    ctx.stroke();
+                });
+            }
+            
+            // Очистка холста
+            function clearCanvas() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                paths = [];
+                currentPath = [];
+                
+                // Сброс результата
+                previewContent.innerHTML = '<p>Здесь появится предпросмотр вашей формулы.</p>';
+                latexCode.value = '';
+            }
+            
+            // Распознавание рукописной формулы
+            async function recognizeHandwriting() {
+                if (!isModelLoaded) {
+                    showError('Модель еще не загружена. Пожалуйста, подождите.');
+                    return;
+                }
+                
+                if (paths.length === 0) {
+                    showError('Пожалуйста, нарисуйте что-нибудь перед распознаванием.');
+                    return;
+                }
+                
+                // Показываем индикатор загрузки для распознавания
+                const button = recognizeButton;
+                const originalText = button.innerHTML;
+                button.disabled = true;
+                button.innerHTML = '<div class="spinner" style="width: 20px; height: 20px; border-width: 2px;"></div><span>Распознавание...</span>';
+                
+                try {
+                    // В реальном приложении здесь будет логика распознавания TensorFlow.js
+                    // Для демонстрации используем имитацию
+                    await sleep(1000);
+                    
+                    // Генерируем пример LaTeX на основе выбранного шаблона
+                    const exampleLatex = getExampleLatex();
+                    
+                    // Обновляем интерфейс
+                    updateResult(exampleLatex);
+                } catch (error) {
+                    console.error('Ошибка распознавания:', error);
+                    showError('Произошла ошибка при распознавании: ' + error.message);
+                } finally {
+                    // Восстанавливаем кнопку
+                    button.disabled = false;
+                    button.innerHTML = originalText;
+                }
+            }
+            
+            // Получение примера LaTeX (в реальном приложении будет заменено на результат модели)
+            function getExampleLatex() {
+                const examples = [
+                    "\\frac{dy}{dx} = \\frac{1}{\\sqrt{1-x^2}}",
+                    "\\int_{0}^{\\infty} e^{-x^2} dx = \\frac{\\sqrt{\\pi}}{2}",
+                    "\\sum_{i=1}^{n} i = \\frac{n(n+1)}{2}",
+                    "E = mc^2",
+                    "\\frac{d}{dx}\\left[ \\int_{a}^{x} f(t) dt \\right] = f(x)",
+                    "f(x) = \\frac{1}{\\sigma\\sqrt{2\\pi}}e^{-\\frac{1}{2}\\left(\\frac{x-\\mu}{\\sigma}\\right)^2}",
+                    "\\begin{pmatrix} a & b \\\\ c & d \\end{pmatrix}\\begin{pmatrix} x \\\\ y \\end{pmatrix} = \\begin{pmatrix} ax+by \\\\ cx+dy \\end{pmatrix}",
+                    "\\lim_{x \\to 0} \\frac{\\sin x}{x} = 1"
+                ];
+                
+                // Выбор случайного примера
+                return examples[Math.floor(Math.random() * examples.length)];
+            }
+            
+            // Обновление результата
+            function updateResult(latex) {
+                // Обновляем предпросмотр
+                previewContent.innerHTML = `<div>$$${latex}$$</div>`;
+                
+                // Обновляем код LaTeX
+                latexCode.value = latex;
+                
+                // Безопасный вызов MathJax для рендеринга формул
+                safeTypesetMathJax();
+                
+                // Переключаемся на вкладку предпросмотра
+                document.querySelector('.tab[data-tab="preview"]').click();
+            }
+            
+            // Копирование LaTeX кода
+            function copyLatexCode() {
+                latexCode.select();
+                document.execCommand('copy');
+                
+                // Визуальная обратная связь
+                const button = copyButton;
+                const originalText = button.innerHTML;
+                button.innerHTML = '<svg class="icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Скопировано!</span>';
+                
+                setTimeout(() => {
+                    button.innerHTML = originalText;
+                }, 2000);
+            }
+            
+            // Добавление символа на холст
+            function addSymbol(symbol) {
+                const fontSize = 24;
+                const centerX = canvas.width / 2;
+                const centerY = canvas.height / 2;
+                
+                // Определяем позицию для вставки
+                let posX, posY;
+                
+                if (paths.length > 0) {
+                    // Находим последнюю точку последнего пути
+                    const lastPath = paths[paths.length - 1];
+                    if (lastPath && lastPath.length > 0) {
+                        const lastPoint = lastPath[lastPath.length - 1];
+                        posX = lastPoint.x + 20;
+                        posY = lastPoint.y;
+                    } else {
+                        posX = centerX;
+                        posY = centerY;
+                    }
+                } else {
+                    posX = centerX;
+                    posY = centerY;
+                }
+                
+                // Рисуем символ
+                ctx.font = `${fontSize}px serif`;
+                ctx.fillStyle = '#000';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(symbol, posX, posY);
+                
+                // Создаем путь для символа, чтобы его можно было удалить с помощью Очистить
+                // Простой прямоугольник вокруг символа как приближение
+                const symbolPath = [
+                    { x: posX - fontSize/2, y: posY - fontSize/2 },
+                    { x: posX + fontSize/2, y: posY - fontSize/2 },
+                    { x: posX + fontSize/2, y: posY + fontSize/2 },
+                    { x: posX - fontSize/2, y: posY + fontSize/2 },
+                    { x: posX - fontSize/2, y: posY - fontSize/2 }
+                ];
+                
+                paths.push(symbolPath);
+            }
+            
+            // Работа с вкладками
+            function setupTabs() {
+                const tabs = document.querySelectorAll('.tab');
+                const tabContents = document.querySelectorAll('.tab-content');
+                
+                tabs.forEach(tab => {
+                    tab.addEventListener('click', () => {
+                        const tabId = tab.getAttribute('data-tab');
+                        
+                        // Активируем выбранную вкладку
+                        tabs.forEach(t => t.classList.remove('active'));
+                        tab.classList.add('active');
+                        
+                        // Показываем соответствующий контент
+                        tabContents.forEach(content => {
+                            content.classList.remove('active');
+                        });
+                        document.getElementById(`${tabId}Tab`).classList.add('active');
+                    });
+                });
+            }
+            
+            // Инициализация приложения
+            function init() {
+                // Проверка поддержки MathJax
+                window.addEventListener('load', function() {
+                    setTimeout(() => {
+                        if (!checkMathJax()) {
+                            console.warn('MathJax не загрузился после времени ожидания');
+                            modelStatus.textContent = "Статус: MathJax не загрузился, предпросмотр формул может не работать";
+                            modelStatus.style.color = "#f59e0b"; // Предупреждение
+                        }
+                    }, 5000);
+                });
+                
+                // Настройка обработчиков событий для рисования
+                canvas.addEventListener('mousedown', startDrawing);
+                canvas.addEventListener('mousemove', draw);
+                canvas.addEventListener('mouseup', stopDrawing);
+                canvas.addEventListener('mouseleave', stopDrawing);
+                
+                // Поддержка сенсорных устройств
+                canvas.addEventListener('touchstart', (e) => {
+                    e.preventDefault();
+                    startDrawing(e);
+                });
+                canvas.addEventListener('touchmove', (e) => {
+                    e.preventDefault();
+                    draw(e);
+                });
+                canvas.addEventListener('touchend', stopDrawing);
+                
+                // Настройка кнопок
+                clearButton.addEventListener('click', clearCanvas);
+                recognizeButton.addEventListener('click', recognizeHandwriting);
+                copyButton.addEventListener('click', copyLatexCode);
+                
+                // Настройка символов
+                document.querySelectorAll('.math-symbol').forEach(element => {
+                    element.addEventListener('click', () => {
+                        const symbol = element.getAttribute('data-symbol');
+                        addSymbol(symbol);
+                    });
+                });
+                
+                // Настройка вкладок
+                setupTabs();
+                
+                // Загрузка модели
+                loadModel();
+            }
+            
+            // Запуск инициализации
+            init();
+        });
+    </script>
+</body>
+</html>
